@@ -1,115 +1,68 @@
-# Easy SteamGrid
+# steam-easygrid (Linux Fork)
 
-A Millennium plugin that adds quick and easy SteamGridDB integration to Steam.
+A Linux-compatible fork of [steam-easygrid](https://github.com/luthor112/steam-easygrid) by **luthor112** — a [Millennium](https://steambrew.app) plugin that adds quick and easy [SteamGridDB](https://www.steamgriddb.com) integration to Steam.
 
-## Features
-- Replace or reset grid images for all apps in a collection with ones from SteamGridDB
-- Switch the Background image (hero), Logo, Cover image (grid), Wide Cover image (wide grid) or Icon of an app with ones from SteamGridDB via a window opened by double-clicking the header
-    - Or automatically switch all images of an app using the `SG` button
-- Set custom height for the Background image (hero)
-    - Good ones are e.g. `530px` or `1240px`
+---
 
-## Notices
-- The plugin needs an API key to work, set it in the Configuration
-- Setting icons can be enabled in the Configuration
-    - Feature might or might not work
-- WEBP art has been disabled by default, as it caused crashes for some users
-    - Can be enabled in the Configuration
-- A 10MB size limit has been applied to all images, to prevent crashes
+## About This Fork
 
-## Configuration
-- Configuration options are available through the Millennium Library Manager
+The original plugin was built primarily for Windows. On Linux, animated WebP images from SteamGridDB could not be applied as hero backgrounds because Steam's embedded Chromium context blocks cross-origin `fetch()` requests to the CDN, and Millennium's IPC layer has size limits that prevent large base64 payloads from being passed between Lua and JavaScript.
 
-## Prerequisites
-- [Millennium](https://steambrew.app/)
-- [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api)
+This fork reworks the image pipeline for Linux:
+
+- **Animated heroes (`.webp`):** downloaded in Lua via `curl`, converted to APNG in the background using Python + Pillow, served locally over a lightweight HTTP server (port 27331), and injected as a DOM overlay on the hero canvas — working around Steam's canvas WebGL limitations entirely.
+- **Static heroes / logos (`.png` / `.jpg`):** downloaded and base64-encoded in Lua, applied directly via `SetCustomArtworkForApp`.
+- **Logo positioning:** uses `SetCustomLogoPositionForApp` to initialise Steam's logo rendering component for text-only games (those without a native CDN logo image), discovered through reverse-engineering the "Adjust Logo Position" right-click menu.
+- **CDN logo detection:** a HEAD request to Steam's Akamai CDN determines whether a game already has a native logo, skipping the position call for games that don't need it.
+
+Tested on **CachyOS / KDE Plasma 6 (Wayland)**.
+
+---
+
+## Current Status
+
+| Image Type   | Status                  |
+|--------------|-------------------------|
+| Hero (animated WebP) | ✅ Working       |
+| Hero (static PNG/JPG) | ✅ Working      |
+| Logo (animated WebP) | ✅ Working        |
+| Logo (static PNG/JPG) | ✅ Working      |
+| Grid / Capsule | ❌ Not working          |
+| Wide Grid    | ⚠️ Completely untested  |
+| Icon         | ❌ Not working          |
+
+Grids and icons are blocked by the same IPC size issue — large PNG files produce base64 payloads that exceed Millennium's transfer limit. A proper fix requires either a background compression pipeline (explored but blocked by process-detachment limitations in Millennium's Lua environment) or a different approach entirely.
+
+---
+
+## Requirements
+
+- [Millennium](https://steambrew.app) installed on Linux
+- `python3` with [Pillow](https://pypi.org/project/Pillow/) (`pip install Pillow`)
+- `curl` (available on virtually all Linux distributions)
+- A [SteamGridDB API key](https://www.steamgriddb.com/api/v2)
+
+---
 
 ## Installation
-- Copy the plugin ID from the [Millennium plugins](https://steambrew.app/plugins) page
-- Click `Plugins` and `Install a plugin` in the Millennium settings and paste the ID
-- Allow 10 seconds for the plugin to load after each startup
 
-## Installation - dev build
-- Download a dev build from GitHub Releases
-- Overwrite the contents of the plugin under the plugins directory (usually `c:\Program Files (x86)\Steam\plugins`)
-- Enable the plugin in the Millennium settings if needed
-- Allow 10 seconds for the plugin to load after each startup
+1. Clone or download this repository into your Millennium plugins directory:
+   ```
+   ~/.local/share/millennium/plugins/steam-easygrid/
+   ```
+2. Add your SteamGridDB API key to `config.json` (copy from `defaults.json` if it doesn't exist).
+3. Restart Steam (or reload Millennium).
 
-## Known issues:
-- Be patient, every change can take a couple seconds
-- The whole page might not update when clicking "Purge Cache", until you change pages and change back
-- Setting icons might or might not work
-- `Auto Replace Images` sometimes fails setting the Wide Grid image
-- If the plugin doesn't work, or randomly stops working, check [Troubleshooting](#troubleshooting)
-- Trying to set WebP files might crash Steam on Linux
-    - MIME types are overridable in the Configuration
+---
 
-## Contributors
+## Credits
 
-<a href="https://github.com/luthor112/steam-easygrid/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=luthor112/steam-easygrid" />
-</a>
+- **[luthor112](https://github.com/luthor112)** — original plugin author ([steam-easygrid](https://github.com/luthor112/steam-easygrid))
+- **[SteamClientHomebrew](https://github.com/SteamClientHomebrew)** — [Millennium](https://github.com/SteamClientHomebrew/Millennium) framework
+- **[SteamGridDB](https://www.steamgriddb.com)** — artwork database and API
 
-Made with [contrib.rocks](https://contrib.rocks).
+---
 
-## HowTo/Screenshots
+## License
 
-# First run
-
-- Get your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api)
-- Open the Millennium Library Manager
-- Click on Easy SteamGrid
-- Paste your API key into the textbox
-
-# Using Grid images from SteamGridDB for entire Collections - from Home
-
-- In the Steam Library, search for the `SGDB` button
-- The button should look like the one here (on the default skin):
-
-![SGDB button](screenshots/sgdb-button.png)
-
-- Click the button and select a Collection to work on - example list:
-
-![Example collection list](screenshots/sgdb-collections.png)
-
-- The progress will be displayed while working - example:
-
-![Searching for Grid images](screenshots/grid-working.png)
-
-# Using Grid images from SteamGridDB for entire Collections - from a Collection
-
-- Select a collection (using the Collections page or the left pane)
-- Search for the `SGDB` button, it should look like this (on the default skin):
-
-![SGDB button](screenshots/sgdb-coll-button.png)
-
-- Click the `SGDB` button and select your course of action: replace or reset all Grid images in the collection
-- The progress will be displayed while working
-
-# Using all images from SteamGridDB
-
-- Double-click the header of an app
-    - ...or click the `SG` button near the `Show game details` button, and select `Open window` from the menu
-- A window should appear with the settings
-- In the left pane, secect the type of image you want to replace
-- In the right page, click the image you want to use
-- The following extra controls are shown:
-    - `Reset` button: Resets the image back to the default one
-    - `Purge Cache` button: Purges all cached links for the given app, forcing a new search and new downloads
-        - This is a good first try when something stops working
-    - `Open Webpage` button: Opens the app's SGDB webpage in your browser
-
-# Using all images from SteamGridDB (but automatically)
-
-- Click the `SG` button near the `Show game details` button
-- Select `Auto replace images` from the menu
-
-![SG button on the app page](screenshots/sg-app-button.png)
-
-## Troubleshooting
-
-If the plugin doesn't find any art for an app, click the `Open Webpage` button to check if the plugin is broken, or there really isn't any art to see
-
-When someting stops working, a good first step is to try pruging the cache of the given app:
-- Double-click the header of the app
-- Click `Purge Cache`, this will purge cached links and files, hopefully fixing the problem
+This fork inherits the license of the original project. See [LICENSE](LICENSE) for details.
