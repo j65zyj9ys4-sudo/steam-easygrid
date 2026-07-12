@@ -22,6 +22,14 @@ Tested on **CachyOS / KDE Plasma 6 (Wayland)**.
 
 ---
 
+## Known Behaviors & Open Questions
+
+**Very large animated heroes can briefly blank during artwork refreshes.** Steam re-reads and re-decodes *all* of an app's custom artwork whenever any artwork type is applied for that app (and possibly on page revisits). Decode time scales with file weight, so a sufficiently heavy hero leaves a visible gap while Steam churns through it. Observed on the test machine (i7-4790K / RTX 3070): a **49.5 MB** animated hero blanked noticeably; a **31 MB** hero on the same game showed no visible gap. The threshold therefore sits somewhere in that range on this hardware, likely varies with CPU/decode speed, and probably scales with resolution and frame count rather than bytes alone.
+
+By design, the plugin imposes **no size cap** — chunked IPC transfer handles any file size, and even a 49.5 MB hero applies and animates correctly; the blanking is purely a Steam-side redecode delay. Whether a soft warning (or opt-in cap) for heavyweight files is desirable is an open question. If you can help bracket the threshold on your hardware, please open an issue with your specs and the file size where blanking becomes visible.
+
+---
+
 ## How v5 Works (and why there's no more conversion)
 
 Earlier versions downloaded animated WebP files, re-encoded them to APNG with Python/Pillow, served them from a local HTTP server, and injected DOM overlays to force animation. All of that is gone, replaced by two observations:
