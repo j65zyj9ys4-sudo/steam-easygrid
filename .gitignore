@@ -1,0 +1,11 @@
+# Build output — regenerate with: pnpm run build
+.millennium/
+
+# Dependencies — regenerate with: pnpm install
+node_modules/
+
+# Your personal SteamGridDB API key lives in this file. NEVER commit it.
+config.json
+
+# Downloaded artwork cache — regenerated on demand, can grow to hundreds of MB
+cache/
