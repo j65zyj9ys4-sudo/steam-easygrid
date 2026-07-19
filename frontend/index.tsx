@@ -37,6 +37,9 @@ const log_frontend = callable<[{ msg: string }], void>('log_frontend');
 // get_artwork_chunk below), "FAILED:<reason>". Anything else is the base64.
 const fetch_artwork = callable<[{ appid: number, imagetype: number, img_url: string }], string>('fetch_artwork');
 const get_artwork_chunk = callable<[{ appid: number, chunk: number, imagetype: number, img_url: string }], string>('get_artwork_chunk');
+const restore_icon = callable<[{ appid: number }], string>('restore_icon');
+const get_config = callable<[], string>('get_config');
+const set_config = callable<[{ config_json: string }], string>('set_config');
 
 // Assembles artwork base64 from the backend. Files under the single-return
 // ceiling arrive in one IPC call; anything larger is streamed in fixed-size
@@ -48,6 +51,12 @@ async function fetchArtworkB64(appid: number, imagetype: number, img_url: string
     if (!result || result.includes('FAILED')) {
         await log_frontend({ msg: `fetch_artwork failed: ${result}` });
         return undefined;
+    }
+    if (result.includes('ICON_APPLIED')) {
+        // Icons are applied backend-side straight into librarycache (Steam
+        // has no API for real-game icons) — nothing to hand to
+        // SetCustomArtworkForApp. Restart Steam to see the change.
+        return 'ICON_APPLIED';
     }
     const chunked = result.match(/CHUNKED:(\d+):(\d+)/);
     if (chunked) {
@@ -116,12 +125,12 @@ var pluginConfig: PluginConfig = {
     display_name_fallback: true,
     replace_custom_images: true,
     appids_excluded_from_replacement: "",
-    prioritize_animated: false,
+    prioritize_animated: true,
     prioritize_authors: [],
     expand_headers: "",
     app_page_button: true,
     collection_button: true,
-    disable_webp: true,
+    disable_webp: false,
     reapply_app_page: true,
     grids_config: { nsfw: "false", humor: "any", epilepsy: "any", types: "static,animated", mimes: "image/webp,image/png,image/jpeg", styles: "alternate,blurred,white_logo,material,no_logo", dimensions: "600x900,342x482,660x930,512x512,1024x1024" },
     wide_grids_config: { nsfw: "false", humor: "any", epilepsy: "any", types: "static,animated", mimes: "image/webp,image/png,image/jpeg", styles: "alternate,blurred,white_logo,material,no_logo", dimensions: "460x215,920x430,512x512,1024x1024" },
@@ -280,6 +289,7 @@ async function applyFirstWorkingImage(appId: number, imgType: number): Promise<b
             if (!result?.data?.length) return false;
             for (const item of result.data) {
                 const b64 = await fetchArtworkB64(appId, imgType, item.url);
+                if (b64 === 'ICON_APPLIED') { SetCustomizationState(appId, imgType, true); return true; }
                 if (b64) { SteamClient.Apps.SetCustomArtworkForApp(appId, b64, getImageExtFromUrl(item.url), imgType); SetCustomizationState(appId, imgType, true); return true; }
             }
             if (result.data.length < 50) return false;
@@ -459,7 +469,11 @@ function getEasyGridComponent(popup: any) {
             // fetch SGDB's ready-to-use file, hand Steam the full untouched
             // bytes — the exact equivalent of the "Set custom artwork" dialog.
             const newImage = await getImageData(props.appid, props.imagetype, targetNum);
-            if (newImage) {
+            if (newImage === 'ICON_APPLIED') {
+                SetCustomizationState(props.appid, props.imagetype, true);
+                statusEl.innerText = "DONE✓ (restart Steam)";
+                statusEl.style.color = 'darkgreen';
+            } else if (newImage) {
                 const imageExt = await getImageExt(props.appid, props.imagetype, targetNum);
                 SteamClient.Apps.SetCustomArtworkForApp(props.appid, newImage, imageExt!, props.imagetype);
                 SetCustomizationState(props.appid, props.imagetype, true);
@@ -490,7 +504,13 @@ function getEasyGridComponent(popup: any) {
 
         const SetOriginalImage = async () => {
             console.log("[steam-easygrid 4] Resetting image...");
-            SteamClient.Apps.ClearCustomArtworkForApp(props.appid, props.imagetype);
+            if (props.imagetype === 4) {
+                // Icons live in librarycache, not custom artwork — restore
+                // Steam's original bytes from the backend's backup sidecar.
+                await restore_icon({ appid: props.appid });
+            } else {
+                SteamClient.Apps.ClearCustomArtworkForApp(props.appid, props.imagetype);
+            }
             SetCustomizationState(props.appid, props.imagetype, false);
         };
 
@@ -684,7 +704,13 @@ type SingleSettingProps =
 const SingleSetting = (props: SingleSettingProps) => {
     const [boolValue, setBoolValue] = useState(false);
     const [isDisabled, setIsDisabled] = useState(false);
-    const saveConfig = () => { localStorage.setItem("luthor112.steam-easygrid.config", JSON.stringify(pluginConfig)); searchCache = {}; };
+    const saveConfig = () => {
+        const json = JSON.stringify(pluginConfig);
+        localStorage.setItem("luthor112.steam-easygrid.config", json);
+        // Write-through to config.json: survives Steam wiping CEF localStorage
+        set_config({ config_json: json }).catch(() => {});
+        searchCache = {};
+    };
     useEffect(() => {
         if (props.type === "bool") setBoolValue(pluginConfig[props.name]);
         if (props.readonly) setIsDisabled(true);
@@ -751,9 +777,30 @@ const SettingsContent = () => {
 
 export default definePlugin(async () => {
     console.log("[steam-easygrid 4] frontend startup");
-    const rawValue = localStorage.getItem("luthor112.steam-easygrid.config");
-    const storedConfig: Partial<PluginConfig> = rawValue ? JSON.parse(rawValue) : {};
+    // Parse helper: tolerates Millennium's IPC string-wrapping and corrupt
+    // values (a half-wiped localStorage entry must not crash the plugin).
+    const safeParse = (raw: string | null): any => {
+        if (!raw) return {};
+        try {
+            let v: any = JSON.parse(raw);
+            if (typeof v === 'string') v = JSON.parse(v);
+            return (v && typeof v === 'object') ? v : {};
+        } catch { return {}; }
+    };
+    const storedConfig: Partial<PluginConfig> = safeParse(localStorage.getItem("luthor112.steam-easygrid.config"));
     pluginConfig = { ...pluginConfig, ...storedConfig };
+    // Hydrate from config.json — the durable copy. Steam clears its CEF
+    // localStorage on client updates / "delete web browser data"; when that
+    // happens, storedConfig is empty and the file restores everything
+    // (API key included). Precedence: defaults < file < localStorage, then
+    // both stores are converged so they can never drift apart.
+    get_config().then((raw) => {
+        const fileConfig: Partial<PluginConfig> = safeParse(raw);
+        pluginConfig = { ...pluginConfig, ...fileConfig, ...storedConfig };
+        const json = JSON.stringify(pluginConfig);
+        localStorage.setItem("luthor112.steam-easygrid.config", json);
+        set_config({ config_json: json }).catch(() => {});
+    }).catch(() => {});
     const rawOverrideValue = localStorage.getItem("luthor112.steam-easygrid.overrides");
     gameIDOverrides = { ...gameIDOverrides, ...(rawOverrideValue ? JSON.parse(rawOverrideValue) : {}) };
     const rawCustomizationValue = localStorage.getItem("luthor112.steam-easygrid.customization");

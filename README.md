@@ -16,9 +16,9 @@ Tested on **CachyOS / KDE Plasma 6 (Wayland)**.
 | Hero           | ✅ Working (any size)       | ✅ Working |
 | Logo           | ✅ Working                  | ✅ Working |
 | Wide Grid      | ⚠️ Untested                 | ⚠️ Untested |
-| Icon           | ❌ Not working              | ❌ Not working |
+| Icon           | ⚠️ Experimental (static only) | ⚠️ Experimental |
 
-**Icon note:** the plugin delivers icon bytes to Steam correctly, but Steam's `SetCustomArtworkForApp` API does not appear to service the icon asset type — icons for real (non-shortcut) Steam games live in a different mechanism. Under investigation.
+**Icon note:** Steam has no custom-artwork API for real games' icons, so the plugin uses the community-established librarycache route: it overwrites the cached icon file (backing up the original first — *Set original image* restores it). Both librarycache layouts are supported: the modern hash-named format and the older named-file format (`icon.jpg`). Steam content-sniffs the bytes, so SGDB's PNG icons apply as-is, transparency included. Caveats: a **Steam restart** is required for the library list to show the change, animation is not supported at this layer, Steam may silently revert the icon when the game's metadata updates (just re-apply), and **games that ship without any default icon cannot gain one** — Steam never consults the icon cache for those titles, so applying an icon to them has no visible effect.
 
 ---
 
@@ -80,7 +80,7 @@ Logos additionally use `SetCustomLogoPositionForApp` to initialise Steam's logo 
 - **Auto replace images** fetches and applies the first matching artwork for every image type in one click.
 - Filters (NSFW / humor / epilepsy, styles, dimensions, animated-first) are configurable per image type in settings.
 
-**Settings note:** leave `disable_webp` **off** if you want animated artwork — enabling it removes WebP from SteamGridDB queries, and nearly all animated artwork on SGDB is WebP.
+**Settings note:** leave `disable_webp` **off** (the default) if you want animated artwork — enabling it removes WebP from SteamGridDB queries, and nearly all animated artwork on SGDB is WebP.
 
 ---
 
