@@ -106,7 +106,6 @@ type PluginConfig = {
     expand_headers: string,
     app_page_button: boolean,
     collection_button: boolean,
-    disable_webp: boolean,
     reapply_app_page: boolean,
     grids_config: ImageTypeSubConfig,
     wide_grids_config: ImageTypeSubConfig,
@@ -130,7 +129,6 @@ var pluginConfig: PluginConfig = {
     expand_headers: "",
     app_page_button: true,
     collection_button: true,
-    disable_webp: false,
     reapply_app_page: true,
     grids_config: { nsfw: "false", humor: "any", epilepsy: "any", types: "static,animated", mimes: "image/webp,image/png,image/jpeg", styles: "alternate,blurred,white_logo,material,no_logo", dimensions: "600x900,342x482,660x930,512x512,1024x1024" },
     wide_grids_config: { nsfw: "false", humor: "any", epilepsy: "any", types: "static,animated", mimes: "image/webp,image/png,image/jpeg", styles: "alternate,blurred,white_logo,material,no_logo", dimensions: "460x215,920x430,512x512,1024x1024" },
@@ -219,7 +217,6 @@ async function searchAllPages(appId: number, imgType: number, typesOverride: str
     const usedConfig = (pluginConfig[`${imgTypeName}_config` as keyof PluginConfig] as ImageTypeSubConfig);
     let fullResult: any[] = [];
     let mimeList = usedConfig.mimes;
-    if (pluginConfig.disable_webp) mimeList = mimeList.replace("image/webp,", "").replace(",image/webp", "");
     let qString = `nsfw=${usedConfig.nsfw}&humor=${usedConfig.humor}&epilepsy=${usedConfig.epilepsy}&mimes=${mimeList}&styles=${usedConfig.styles}`;
     qString += typesOverride ? `&types=${typesOverride}` : `&types=${usedConfig.types}`;
     if ("dimensions" in usedConfig && usedConfig["dimensions"]) qString += `&dimensions=${usedConfig.dimensions}`;
@@ -280,7 +277,6 @@ async function applyFirstWorkingImage(appId: number, imgType: number): Promise<b
     const imgSearchTypeName = imgType === 3 ? "grids" : imgTypeName;
     const usedConfig = pluginConfig[`${imgTypeName}_config` as keyof PluginConfig] as ImageTypeSubConfig;
     let mimeList = usedConfig.mimes;
-    if (pluginConfig.disable_webp) mimeList = mimeList.replace("image/webp,", "").replace(",image/webp", "");
     const dimStr = ("dimensions" in usedConfig && usedConfig["dimensions"]) ? `&dimensions=${usedConfig.dimensions}` : "";
     const baseQ = `nsfw=${usedConfig.nsfw}&humor=${usedConfig.humor}&epilepsy=${usedConfig.epilepsy}&mimes=${mimeList}&styles=${usedConfig.styles}${dimStr}`;
     const tryTypes = async (types: string): Promise<boolean> => {
@@ -759,7 +755,6 @@ const SettingsContent = () => {
             <SingleSetting name="expand_headers" type="text" label="Expand app header size" description="Set custom header height" />
             <SingleSetting name="app_page_button" type="bool" label="Show SG button" description="Show SG button on application pages" />
             <SingleSetting name="collection_button" type="bool" label="Show SGDB button" description="Show SGDB button for Collections" />
-            <SingleSetting name="disable_webp" type="bool" label="Disable WEBP support" description="Avoids crashes for some users" />
             <SingleSetting name="reapply_app_page" type="bool" label="Reapply on UI modification" description="Fixes header size problem, causes others" />
             <ImageSearchSetting name="grids_config" label="Grids" />
             <ImageSearchSetting name="wide_grids_config" label="Wide Grids" />

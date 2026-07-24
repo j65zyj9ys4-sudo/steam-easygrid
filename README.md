@@ -15,7 +15,7 @@ Tested on **CachyOS / KDE Plasma 6 (Wayland)**.
 | Grid / Capsule | ✅ Working                  | ✅ Working |
 | Hero           | ✅ Working (any size)       | ✅ Working |
 | Logo           | ✅ Working                  | ✅ Working |
-| Wide Grid      | ⚠️ Untested                 | ⚠️ Untested |
+| Wide Grid      | ✅ Working                  | ✅ Working |
 | Icon           | ⚠️ Experimental (static only) | ⚠️ Experimental |
 
 **Icon note:** Steam has no custom-artwork API for real games' icons, so the plugin uses the community-established librarycache route: it overwrites the cached icon file (backing up the original first — *Set original image* restores it). Both librarycache layouts are supported: the modern hash-named format and the older named-file format (`icon.jpg`). Steam content-sniffs the bytes, so SGDB's PNG icons apply as-is, transparency included. Caveats: a **Steam restart** is required for the library list to show the change, animation is not supported at this layer, Steam may silently revert the icon when the game's metadata updates (just re-apply), and **games that ship without any default icon cannot gain one** — Steam never consults the icon cache for those titles, so applying an icon to them has no visible effect.
