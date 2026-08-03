@@ -80,6 +80,48 @@ function vote_asset(a_bearer, assettype, direction, id)
     return "FAILED:" .. tostring(body)
 end
 
+-- Read-only asset details: hearts, upvotes/downvotes, downloads, and
+-- (when the caller is authenticated) whether THIS account has already
+-- hearted/upvoted/downvoted it. Confirmed live via browser capture at
+-- /api/public/asset/{type}/{id} — a genuinely different, undocumented
+-- endpoint from anything in the public api/v2 docs. Confirmed working with
+-- a bare Bearer token (no session cookie needed). NOTE: this endpoint uses
+-- the SINGULAR asset type (hero/grid/logo/icon) — unlike vote_asset and
+-- heart_asset below, which use the plural form. The frontend is
+-- responsible for passing the right one.
+-- NOTE: Millennium passes params alphabetically: a_bearer, assettype, id
+function get_asset_details(a_bearer, assettype, id)
+    local endpoint = string.format("https://www.steamgriddb.com/api/public/asset/%s/%s", assettype, tostring(id))
+    local auth_header = "Authorization: Bearer " .. a_bearer
+    local h = io.popen(string.format(
+        "env -u LD_LIBRARY_PATH curl -s --max-time 15 -H %q %q 2>/dev/null",
+        auth_header, endpoint
+    ))
+    if not h then logger:error("get_asset_details: popen failed"); return "FAILED:popen" end
+    local body = h:read("*a"); h:close()
+    return body or "FAILED:empty"
+end
+
+-- Toggles the heart (favorite) on a single asset. Confirmed via live
+-- browser capture to be POST {assettype}/heart/{id} (plural form) —
+-- genuinely separate from vote_asset above (hearts and the up/down arrows
+-- are two different systems on SGDB's side). Confirmed working with a bare
+-- Bearer token. Logs every call (unlike get_asset_details, this only fires
+-- on an explicit click, so it's low-frequency enough to log in full).
+-- NOTE: Millennium passes params alphabetically: a_bearer, assettype, id
+function heart_asset(a_bearer, assettype, id)
+    local endpoint = string.format("https://www.steamgriddb.com/api/v2/%s/heart/%s", assettype, tostring(id))
+    local auth_header = "Authorization: Bearer " .. a_bearer
+    local h = io.popen(string.format(
+        "env -u LD_LIBRARY_PATH curl -s -X POST --max-time 15 -H %q %q 2>/dev/null",
+        auth_header, endpoint
+    ))
+    if not h then logger:error("heart_asset: popen failed"); return "FAILED:popen" end
+    local body = h:read("*a"); h:close()
+    logger:info("heart_asset: " .. endpoint .. " -> " .. tostring(body))
+    return body or "FAILED:empty"
+end
+
 -- Durable plugin configuration. Steam clears its CEF localStorage on
 -- client updates and "delete web browser data", silently wiping any
 -- settings stored there (including the API key). config.json in the

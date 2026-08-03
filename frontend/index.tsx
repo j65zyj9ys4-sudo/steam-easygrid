@@ -42,7 +42,18 @@ const restore_icon = callable<[{ appid: number }], string>('restore_icon');
 // ({assettype}/vote/{direction}/{id}) — this is the one call in the whole
 // plugin that hasn't been confirmed against a live response. Everything
 // else here was checked; this one needs a real test.
-const vote_asset = callable<[{ a_bearer: string, assettype: string, direction: string, id: number }], string>('vote_asset');
+// vote_asset confirmed working via live test (see backend/main.lua) but
+// isn't wired to anything right now — voting (the up/down arrows) turned
+// out to be a separate system from hearts, and is on the back burner.
+// Commented rather than removed: the backend function stays ready, and
+// re-enabling this later is a one-line uncomment.
+// const vote_asset = callable<[{ a_bearer: string, assettype: string, direction: string, id: number }], string>('vote_asset');
+// Both confirmed working with a bare Bearer token (no session cookie
+// needed, despite the original browser capture using one). Note
+// get_asset_details takes the SINGULAR asset type (hero/grid/logo/icon);
+// heart_asset takes the plural, matching search (heroes/grids/logos/icons).
+const get_asset_details = callable<[{ a_bearer: string, assettype: string, id: number }], string>('get_asset_details');
+const heart_asset = callable<[{ a_bearer: string, assettype: string, id: number }], string>('heart_asset');
 const get_config = callable<[], string>('get_config');
 const set_config = callable<[{ config_json: string }], string>('set_config');
 
@@ -156,15 +167,6 @@ var searchCache: SearchCache = {};
 type AppCustomizationState = { grids: boolean; heroes: boolean; logos: boolean; wide_grids: boolean; icons: boolean; };
 type CustomizationStates = Record<string, AppCustomizationState>;
 var customizationStates: CustomizationStates = {};
-
-// Tracks which individual SGDB asset IDs (a specific grid/hero/logo/icon,
-// not the game itself) have been upvoted through this plugin. SGDB's
-// list/search endpoints don't return a per-account "did I already vote on
-// this" flag, so this is the plugin's own record of votes it has actually
-// submitted — it won't know about prior votes cast on the website itself,
-// only ones cast from here.
-type LikedAssets = Record<number, boolean>;
-var likedAssets: LikedAssets = {};
 
 function SetCustomizationState(appID: number, imgType: number, newState: boolean) {
     if (!(appID.toString() in customizationStates)) {
@@ -432,6 +434,11 @@ function getEasyGridComponent(popup: any) {
         const [thumbnailList, setThumbnailList] = useState([]);
         const [sgdbIdInput, setSteamGridDBIdInput] = useState<string>("");
         const [kofiHtml, setKofiHtml] = useState<string>("");
+        // Accurate per-asset hearts count + personal hearted state, from the
+        // real asset-details endpoint — populated in the background as each
+        // thumbnail resolves, not blocking initial render. Falls back to the
+        // bulk search response's .score for any item not yet resolved.
+        const [assetHeartInfo, setAssetHeartInfo] = useState<Record<number, { hearts: number, isHearted: boolean }>>({});
 
         const GetCurrentSettings = async () => {
             const id = await getSteamGridDBId(props.appid);
@@ -549,21 +556,24 @@ function getEasyGridComponent(popup: any) {
             window.open(`https://www.steamgriddb.com/game/${steamGridDBId}`, "_blank");
         };
 
-        // Upvotes a single asset. Silently a no-op if already liked through
-        // this plugin (SGDB doesn't let you vote twice, and this avoids a
-        // pointless request). imgSearchTypeName mirrors the same grids/heroes/
-        // logos/icons mapping already used for search (wide_grid -> grids).
-        const VoteAsset = async (assetId: number, e: React.MouseEvent) => {
+        // Toggles the heart (favorite) on a single asset via the real heart
+        // endpoint — confirmed distinct from voting. The response only gives
+        // back the new hearts total, not an explicit hearted/unhearted flag,
+        // so isHearted is flipped locally from whatever we last knew it to
+        // be (seeded accurately by the background fetch above).
+        const ToggleHeart = async (assetId: number, e: React.MouseEvent) => {
             e.stopPropagation();
-            if (likedAssets[assetId]) return;
             const imgSearchTypeName = props.imagetype === 3 ? "grids" : imgTypeDict[props.imagetype];
-            const result = await vote_asset({ a_bearer: pluginConfig.api_key, assettype: imgSearchTypeName, direction: "up", id: assetId });
-            if (result === "OK") {
-                likedAssets[assetId] = true;
-                localStorage.setItem("luthor112.steam-easygrid.liked", JSON.stringify(likedAssets));
-                setThumbnailList([...thumbnailList]);
-            } else {
-                await log_frontend({ msg: `vote_asset failed: ${result}` });
+            const raw = await heart_asset({ a_bearer: pluginConfig.api_key, assettype: imgSearchTypeName, id: assetId });
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.success && parsed?.data) {
+                    setAssetHeartInfo(prev => ({ ...prev, [assetId]: { hearts: parsed.data.hearts, isHearted: !(prev[assetId]?.isHearted) } }));
+                } else {
+                    await log_frontend({ msg: `heart_asset failed: ${raw}` });
+                }
+            } catch {
+                await log_frontend({ msg: `heart_asset parse failed: ${raw}` });
             }
         };
 
@@ -574,6 +584,40 @@ function getEasyGridComponent(popup: any) {
         };
 
         useEffect(() => { GetCurrentSettings(); }, []);
+
+        // Populates accurate hearts counts + personal hearted state in the
+        // background, one asset at a time, as thumbnails load. Sequential
+        // (not parallel) to be a considerate API citizen. Cancels cleanly if
+        // a new search starts before this one finishes.
+        useEffect(() => {
+            let cancelled = false;
+            (async () => {
+                const imgSearchTypeName = props.imagetype === 3 ? "grids" : imgTypeDict[props.imagetype];
+                // get_asset_details takes the SINGULAR form (hero/grid/logo/
+                // icon) — confirmed via a live "Invalid asset type" error
+                // when the plural was used. heart_asset/vote_asset both take
+                // the plural, so this conversion is local to this call only.
+                const singularAssetType: Record<string, string> = { grids: "grid", heroes: "hero", logos: "logo", icons: "icon" };
+                const detailsAssetType = singularAssetType[imgSearchTypeName] || imgSearchTypeName;
+                for (let i = 0; i < thumbnailList.length; i++) {
+                    if (cancelled) return;
+                    const assetId = thumbnailList[i].id;
+                    const raw = await get_asset_details({ a_bearer: pluginConfig.api_key, assettype: detailsAssetType, id: assetId });
+                    if (i === 0) await log_frontend({ msg: `get_asset_details first result: ${raw}` });
+                    try {
+                        const parsed = JSON.parse(raw);
+                        if (parsed?.success && parsed?.data?.asset && !cancelled) {
+                            const asset = parsed.data.asset;
+                            setAssetHeartInfo(prev => ({ ...prev, [assetId]: { hearts: asset.hearts, isHearted: !!asset.is_hearted } }));
+                        }
+                    } catch {
+                        // Malformed/unexpected response for this one item — skip it,
+                        // keep going with the rest rather than aborting the whole batch.
+                    }
+                }
+            })();
+            return () => { cancelled = true; };
+        }, [thumbnailList]);
 
         // Ko-fi support button. Uses the real widget's own init()+getHTML() — deliberately
         // NOT draw(), which document.writeln()s the markup and is only safe during a
@@ -611,18 +655,19 @@ function getEasyGridComponent(popup: any) {
                 <DialogButton style={{width: "115px", display: "inline-block"}} onClick={ClearSteamGridDBIdOverride}>Clear SGDB ID</DialogButton><br/>
                 <div style={containerStyle}>
                     {thumbnailList.map((thumbData, index) => {
-                        const liked = !!likedAssets[thumbData.id];
-                        // +1 shown locally on like — SGDB's response score isn't
-                        // refetched after voting, so this is an optimistic bump,
-                        // not a live count from the server.
-                        const displayScore = (thumbData.score || 0) + (liked ? 1 : 0);
+                        const heartInfo = assetHeartInfo[thumbData.id];
+                        const liked = heartInfo ? heartInfo.isHearted : false;
+                        // Real hearts count once the background fetch resolves for
+                        // this item; .score (from the bulk search response) as a
+                        // placeholder before that, since it's already on hand.
+                        const displayScore = heartInfo ? heartInfo.hearts : (thumbData.score || 0);
                         const infoRow = (
                             <div style={infoRowStyle}>
                                 <div style={authorInfoStyle} onClick={(e: React.MouseEvent) => OpenAuthorProfile(thumbData.author?.steam64, e)} title="Open SGDB profile">
                                     {thumbData.author?.avatar && <img src={thumbData.author.avatar} style={avatarStyle} alt=""/>}
                                     <span style={authorNameStyle}>{thumbData.author?.name}</span>
                                 </div>
-                                <div style={heartRowStyle} onClick={(e: React.MouseEvent) => VoteAsset(thumbData.id, e)}>
+                                <div style={heartRowStyle} onClick={(e: React.MouseEvent) => ToggleHeart(thumbData.id, e)}>
                                     <span>{liked ? '♥' : '♡'}</span>
                                     <span>{displayScore}</span>
                                 </div>
@@ -881,8 +926,6 @@ export default definePlugin(async () => {
     gameIDOverrides = { ...gameIDOverrides, ...(rawOverrideValue ? JSON.parse(rawOverrideValue) : {}) };
     const rawCustomizationValue = localStorage.getItem("luthor112.steam-easygrid.customization");
     customizationStates = { ...customizationStates, ...(rawCustomizationValue ? JSON.parse(rawCustomizationValue) : {}) };
-    const rawLikedValue = localStorage.getItem("luthor112.steam-easygrid.liked");
-    likedAssets = { ...likedAssets, ...(rawLikedValue ? JSON.parse(rawLikedValue) : {}) };
     Millennium.AddWindowCreateHook!(OnPopupCreation);
     return {
         title: "Easy SteamGrid",
