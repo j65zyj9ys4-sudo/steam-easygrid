@@ -6,7 +6,7 @@ if is_windows then
     utils = require("utils")
 end
 
-local CACHE_DIR = os.getenv("HOME") .. "/.local/share/millennium/plugins/steam-easygrid/cache/"
+local CACHE_DIR = os.getenv("HOME") .. "/.local/share/millennium/plugins/steam-easygrid-linux/cache/"
 
 os.execute("mkdir -p " .. CACHE_DIR)
 
@@ -62,7 +62,7 @@ end
 -- settings stored there (including the API key). config.json in the
 -- plugin directory survives all of that — and is gitignored, so the
 -- key can never be committed.
-local CONFIG_PATH = os.getenv("HOME") .. "/.local/share/millennium/plugins/steam-easygrid/config.json"
+local CONFIG_PATH = os.getenv("HOME") .. "/.local/share/millennium/plugins/steam-easygrid-linux/config.json"
 
 function get_config()
     local f = io.open(CONFIG_PATH, "rb")

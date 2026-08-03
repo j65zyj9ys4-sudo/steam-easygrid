@@ -184,7 +184,7 @@ async function callAPI(endpoint: string) {
     if ("http_status" in apiAnswer) { console.log("[steam-easygrid 4] Unsuccessful API call - HTTP", apiAnswer["http_status"]); return undefined; }
     else if (!("success" in apiAnswer)) { console.log("[steam-easygrid 4] Unsuccessful API call - Malformed answer"); return undefined; }
     else if (!apiAnswer["success"]) { console.log("[steam-easygrid 4] Unsuccessful API call - success is false"); return undefined; }
-    else { console.log("[steam-easygrid 4] Successful API call"); return apiAnswer; }
+    else { return apiAnswer; }
 }
 
 async function getSteamGridDBId(appId: number): Promise<number | undefined> {
@@ -324,6 +324,33 @@ async function getImageExt(appId: number, imgType: number, imgNum: number) {
     return undefined;
 }
 
+// Shared by renderHome (one call per user collection) and renderCollection
+// (one call for the currently-open collection) — the iteration logic itself
+// was identical in both, just the source of collId differed.
+async function replaceGridsForCollection(collId: string, gridButton: HTMLElement) {
+    const currentColl = collectionStore.GetCollection(collId);
+    const excludedAppIDs = getExcludedAppIDs();
+    for (let j = 0; j < currentColl.allApps.length; j++) {
+        (gridButton.firstChild as HTMLElement).innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
+        const appid = currentColl.allApps[j].appid;
+        if (appid in excludedAppIDs) continue;
+        if (!pluginConfig.replace_custom_images && GetCustomizationState(appid, 0)) continue;
+        await applyFirstWorkingImage(appid, 0);
+        delete searchCache[appid.toString()];
+    }
+    (gridButton.firstChild as HTMLElement).innerHTML = "Done!";
+}
+
+async function resetGridsForCollection(collId: string, gridButton: HTMLElement) {
+    const currentColl = collectionStore.GetCollection(collId);
+    for (let j = 0; j < currentColl.allApps.length; j++) {
+        (gridButton.firstChild as HTMLElement).innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
+        SteamClient.Apps.ClearCustomArtworkForApp(currentColl.allApps[j].appid, 0);
+        SetCustomizationState(currentColl.allApps[j].appid, 0, false);
+    }
+    (gridButton.firstChild as HTMLElement).innerHTML = "Done!";
+}
+
 async function renderHome(popup: any) {
     const headerDiv = await WaitForElement(`div.${findModule(e => e.ShowcaseHeader).ShowcaseHeader}`, popup.m_popup.document);
     const oldGridButton = headerDiv.querySelector('button.easygrid-button');
@@ -337,28 +364,8 @@ async function renderHome(popup: any) {
             for (let i = 0; i < collectionStore.userCollections.length; i++) {
                 const collId = collectionStore.userCollections[i].m_strId;
                 const collName = collectionStore.userCollections[i].m_strName;
-                extraMenuItems.push(<MenuItem onClick={async () => {
-                    const currentColl = collectionStore.GetCollection(collId);
-                    const excludedAppIDs = getExcludedAppIDs();
-                    for (let j = 0; j < currentColl.allApps.length; j++) {
-                        gridButton.firstChild.innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
-                        const appid = currentColl.allApps[j].appid;
-                        if (appid in excludedAppIDs) continue;
-                        if (!pluginConfig.replace_custom_images && GetCustomizationState(appid, 0)) continue;
-                        await applyFirstWorkingImage(appid, 0);
-                        delete searchCache[appid.toString()];
-                    }
-                    gridButton.firstChild.innerHTML = "Done!";
-                }}> Replace grids of {collName} </MenuItem>);
-                extraMenuItems.push(<MenuItem onClick={async () => {
-                    const currentColl = collectionStore.GetCollection(collId);
-                    for (let j = 0; j < currentColl.allApps.length; j++) {
-                        gridButton.firstChild.innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
-                        SteamClient.Apps.ClearCustomArtworkForApp(currentColl.allApps[j].appid, 0);
-                        SetCustomizationState(currentColl.allApps[j].appid, 0, false);
-                    }
-                    gridButton.firstChild.innerHTML = "Done!";
-                }}> Reset grids of {collName} </MenuItem>);
+                extraMenuItems.push(<MenuItem onClick={() => replaceGridsForCollection(collId, gridButton)}> Replace grids of {collName} </MenuItem>);
+                extraMenuItems.push(<MenuItem onClick={() => resetGridsForCollection(collId, gridButton)}> Reset grids of {collName} </MenuItem>);
             }
             showContextMenu(<Menu label="EasyGrid Options">{extraMenuItems}</Menu>, gridButton, {bForcePopup: true});
         });
@@ -376,28 +383,8 @@ async function renderCollection(popup: any) {
         gridButton.addEventListener("click", async () => {
             showContextMenu(
                 <Menu label="EasyGrid Options">
-                    <MenuItem onClick={async () => {
-                        const currentColl = collectionStore.GetCollection(uiStore.currentGameListSelection.strCollectionId);
-                        const excludedAppIDs = getExcludedAppIDs();
-                        for (let j = 0; j < currentColl.allApps.length; j++) {
-                            gridButton.firstChild.innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
-                            const appid = currentColl.allApps[j].appid;
-                            if (appid in excludedAppIDs) continue;
-                            if (!pluginConfig.replace_custom_images && GetCustomizationState(appid, 0)) continue;
-                            await applyFirstWorkingImage(appid, 0);
-                            delete searchCache[appid.toString()];
-                        }
-                        gridButton.firstChild.innerHTML = "Done!";
-                    }}> Replace grids </MenuItem>
-                    <MenuItem onClick={async () => {
-                        const currentColl = collectionStore.GetCollection(uiStore.currentGameListSelection.strCollectionId);
-                        for (let j = 0; j < currentColl.allApps.length; j++) {
-                            gridButton.firstChild.innerHTML = `Working... (${j}/${currentColl.allApps.length})`;
-                            SteamClient.Apps.ClearCustomArtworkForApp(currentColl.allApps[j].appid, 0);
-                            SetCustomizationState(currentColl.allApps[j].appid, 0, false);
-                        }
-                        gridButton.firstChild.innerHTML = "Done!";
-                    }}> Reset grids </MenuItem>
+                    <MenuItem onClick={() => replaceGridsForCollection(uiStore.currentGameListSelection.strCollectionId, gridButton)}> Replace grids </MenuItem>
+                    <MenuItem onClick={() => resetGridsForCollection(uiStore.currentGameListSelection.strCollectionId, gridButton)}> Reset grids </MenuItem>
                 </Menu>,
                 gridButton, {bForcePopup: true}
             );
@@ -500,7 +487,6 @@ function getEasyGridComponent(popup: any) {
         };
 
         const SetOriginalImage = async () => {
-            console.log("[steam-easygrid 4] Resetting image...");
             if (props.imagetype === 4) {
                 // Icons live in librarycache, not custom artwork — restore
                 // Steam's original bytes from the backend's backup sidecar.
@@ -533,7 +519,6 @@ function getEasyGridComponent(popup: any) {
         };
 
         const OpenWebpage = async () => {
-            console.log("[steam-easygrid 4] Opening SGDB Webpage...");
             window.open(`https://www.steamgriddb.com/game/${steamGridDBId}`, "_blank");
         };
 
@@ -577,15 +562,15 @@ function getEasyGridComponent(popup: any) {
                     {thumbnailList.map((thumbData, index) => {
                         if (thumbData["type"] === "static")
                             return (
-                                <div style={imageWrapperStyle}>
-                                    <img key={index} data-imageindex={index} src={thumbData["thumb"]} alt={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
-                                    <div key={`${index}-status`} style={statusStyle}></div>
+                                <div key={index} style={imageWrapperStyle}>
+                                    <img data-imageindex={index} src={thumbData["thumb"]} alt={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
+                                    <div style={statusStyle}></div>
                                 </div>
                             );
                         return (
-                            <div style={imageWrapperStyle}>
-                                <video key={index} data-imageindex={index} autoPlay loop muted playsInline src={thumbData["thumb"]} title={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
-                                <div key={`${index}-status`} style={statusStyle}></div>
+                            <div key={index} style={imageWrapperStyle}>
+                                <video data-imageindex={index} autoPlay loop muted playsInline src={thumbData["thumb"]} title={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
+                                <div style={statusStyle}></div>
                             </div>
                         );
                     })}
@@ -687,25 +672,28 @@ async function renderAppAndObserve(popup: any) {
 }
 
 async function OnPopupCreation(popup: any) {
+    // Only the main desktop popup needs any of this — checking that first
+    // (cheap, synchronous) means every other popup Steam creates (the
+    // artwork picker included) returns immediately instead of paying a
+    // pointless 10s delay before discovering it was never a match.
+    if (popup.m_strName !== "SP Desktop_uid0") return;
     await sleep(10000);
-    if (popup.m_strName === "SP Desktop_uid0") {
-        var mwbm = undefined;
-        while (!mwbm) {
-            console.log("[steam-easygrid 4] Waiting for MainWindowBrowserManager");
-            try { mwbm = MainWindowBrowserManager; } catch { await sleep(100); }
-        }
-        console.log("[steam-easygrid 4] Registering callback");
-        MainWindowBrowserManager.m_browser.on("finished-request", async (currentURL: any, previousURL: any) => {
-            void currentURL; void previousURL;
-            if (MainWindowBrowserManager.m_lastLocation.pathname === "/library/home") {
-                await renderHome(popup);
-            } else if (MainWindowBrowserManager.m_lastLocation.pathname.startsWith("/library/collection/")) {
-                await renderCollection(popup);
-            } else if (MainWindowBrowserManager.m_lastLocation.pathname.startsWith("/library/app/")) {
-                await renderAppAndObserve(popup);
-            }
-        });
+    var mwbm = undefined;
+    while (!mwbm) {
+        console.log("[steam-easygrid 4] Waiting for MainWindowBrowserManager");
+        try { mwbm = MainWindowBrowserManager; } catch { await sleep(100); }
     }
+    console.log("[steam-easygrid 4] Registering callback");
+    MainWindowBrowserManager.m_browser.on("finished-request", async (currentURL: any, previousURL: any) => {
+        void currentURL; void previousURL;
+        if (MainWindowBrowserManager.m_lastLocation.pathname === "/library/home") {
+            await renderHome(popup);
+        } else if (MainWindowBrowserManager.m_lastLocation.pathname.startsWith("/library/collection/")) {
+            await renderCollection(popup);
+        } else if (MainWindowBrowserManager.m_lastLocation.pathname.startsWith("/library/app/")) {
+            await renderAppAndObserve(popup);
+        }
+    });
 }
 
 type BoolKeys = { [K in keyof PluginConfig]: PluginConfig[K] extends boolean ? K : never }[keyof PluginConfig];
@@ -766,7 +754,7 @@ const SettingsContent = () => {
     const doClearAll = async () => { setClearing(true); await purge_all_cache(); setClearing(false); };
     return (
         <div>
-            <Field label="Clear All Animation Cache" description="Delete all downloaded/converted APNG files from disk">
+            <Field label="Clear All Cache" description="Delete all downloaded artwork files from disk">
                 <DialogButton onClick={doClearAll} disabled={clearing} style={{width: '160px'}}>{clearing ? 'Clearing...' : 'Clear All Cache'}</DialogButton>
             </Field>
             <SingleSetting name="api_key" type="text" label="API key" description="Your SteamGridDB API key" />
