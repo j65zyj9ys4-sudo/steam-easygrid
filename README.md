@@ -1,6 +1,6 @@
 # Easy SteamGrid (Linux)
 
-[![ko-fi](https://storage.ko-fi.com/cdn/kofi3.png?v=6)](https://ko-fi.com/Y8Y019SFZ6)
+<a href="https://ko-fi.com/Y8Y019SFZ6"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" width="150" alt="ko-fi"></a>
 
 A [Millennium](https://steambrew.app) plugin that adds quick and easy [SteamGridDB](https://www.steamgriddb.com) integration to Steam on Linux — grids, heroes, and logos, **including animated artwork**, applied instantly with zero conversion.
 
