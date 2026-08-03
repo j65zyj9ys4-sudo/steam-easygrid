@@ -417,6 +417,7 @@ function getEasyGridComponent(popup: any) {
         const [steamGridDBId, setSteamGridDBId] = useState<number>(-1);
         const [thumbnailList, setThumbnailList] = useState([]);
         const [sgdbIdInput, setSteamGridDBIdInput] = useState<string>("");
+        const [kofiHtml, setKofiHtml] = useState<string>("");
 
         const GetCurrentSettings = async () => {
             const id = await getSteamGridDBId(props.appid);
@@ -538,6 +539,27 @@ function getEasyGridComponent(popup: any) {
 
         useEffect(() => { GetCurrentSettings(); }, []);
 
+        // Ko-fi support button. Uses the real widget's own init()+getHTML() — deliberately
+        // NOT draw(), which document.writeln()s the markup and is only safe during a
+        // page's initial synchronous parse. Called well after mount like this, that can
+        // blank/rewrite the whole document. getHTML() just returns the same markup as a
+        // string, which we render ourselves, in place, like anything else in this row.
+        useEffect(() => {
+            const kofiWin = popup.m_popup.window as any;
+            const buildKofiHtml = () => {
+                kofiWin.kofiwidget2.init('Support me on Ko-fi', '#3d4450', 'Y8Y019SFZ6');
+                setKofiHtml(kofiWin.kofiwidget2.getHTML());
+            };
+            if (kofiWin.kofiwidget2) {
+                buildKofiHtml();
+            } else {
+                const kofiScript = popup.m_popup.document.createElement("script");
+                kofiScript.src = "https://storage.ko-fi.com/cdn/widget/Widget_2.js";
+                kofiScript.onload = buildKofiHtml;
+                popup.m_popup.document.body.appendChild(kofiScript);
+            }
+        }, []);
+
         return (
             <div>
                 App ID: {props.appid} / SGDB ID: {steamGridDBId} / Image Type: {props.imagetype} (found {thumbnailList.length}) <br/>
@@ -546,9 +568,9 @@ function getEasyGridComponent(popup: any) {
                 <DialogButton style={{width: "125px", display: "inline-block"}} onClick={OpenWebpage}>Open Webpage</DialogButton> &nbsp;
                 <DialogButton style={{width: "100px", display: "inline-block"}} onClick={ResetAllImages}>Reset All</DialogButton> &nbsp;
                 <DialogButton style={{width: "130px", display: "inline-block"}} onClick={PurgeAllDiskCache}>Purge All Cache</DialogButton>
-                <div style={{width: "130px", display: "inline-block", marginLeft: "8px", marginRight: "4px", verticalAlign: "middle"}}>
-                    <TextField value={sgdbIdInput} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSteamGridDBIdInput(e.currentTarget.value)} mustBeNumeric={true} />
-                </div>
+                <div style={{display: "inline-block", marginLeft: "8px", marginRight: "8px", verticalAlign: "middle"}}>
+                    <TextField style={{width: "91px", boxSizing: "border-box"}} value={sgdbIdInput} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSteamGridDBIdInput(e.currentTarget.value)} mustBeNumeric={true} />
+                </div> &nbsp;
                 <DialogButton style={{width: "100px", display: "inline-block"}} onClick={SetSteamGridDBIdOverride}>Set SGDB ID</DialogButton> &nbsp;
                 <DialogButton style={{width: "115px", display: "inline-block"}} onClick={ClearSteamGridDBIdOverride}>Clear SGDB ID</DialogButton><br/>
                 <div style={containerStyle}>
@@ -568,6 +590,7 @@ function getEasyGridComponent(popup: any) {
                         );
                     })}
                 </div>
+                <div style={{position: "fixed", left: "20px", bottom: "20px", zIndex: 999}} dangerouslySetInnerHTML={{__html: kofiHtml}} />
             </div>
         );
     };
