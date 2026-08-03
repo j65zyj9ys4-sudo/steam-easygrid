@@ -1,8 +1,8 @@
 {
-    "$schema": "https://raw.githubusercontent.com/SteamClientHomebrew/Millennium/main/src/sys/plugin-schema.json",
+    "$schema": "https://raw.githubusercontent.com/SteamClientHomebrew/Millennium/main/src/system/plugin-schema.json",
 
-    "name": "steam-easygrid",
-    "common_name": "Easy SteamGrid",
+    "name": "steam-easygrid-linux",
+    "common_name": "Easy SteamGrid (Linux)",
     "description": "Quick and easy SteamGridDB integration — animated artwork, zero conversion",
     "version": "5.0.0",
     "backendType": "lua"

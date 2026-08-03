@@ -11,7 +11,7 @@
     "@types/webpack": "^5.28.5"
   },
   "type": "module",
-  "name": "steam-easygrid",
+  "name": "steam-easygrid-linux",
   "version": "4.0.3",
   "description": "Quick and easy SteamGridDB integration",
   "main": "./frontend/index.jsx",
