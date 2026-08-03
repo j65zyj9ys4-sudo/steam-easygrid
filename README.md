@@ -1,5 +1,7 @@
 # Easy SteamGrid (Linux)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y019SFZ6)
+
 A [Millennium](https://steambrew.app) plugin that adds quick and easy [SteamGridDB](https://www.steamgriddb.com) integration to Steam on Linux — grids, heroes, and logos, **including animated artwork**, applied instantly with zero conversion.
 
 Originally forked from [steam-easygrid](https://github.com/luthor112/steam-easygrid) by **luthor112**; v5 is a ground-up rewrite of the artwork pipeline.
