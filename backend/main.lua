@@ -57,6 +57,29 @@ function call_api_backend(a_bearer, b_endpoint)
     return response.body
 end
 
+-- Upvotes/downvotes a single SGDB asset (an individual grid/hero/logo/icon,
+-- identified by its own id — not the game id). Uses curl rather than the
+-- http module above since POST support there isn't confirmed, and curl is
+-- already relied on elsewhere in this file. URL inferred from SGDB's
+-- established REST conventions ({assettype}/vote/{direction}/{id}) — unlike
+-- everything else in this file, this hasn't been confirmed against a live
+-- response yet. Logs the raw body back so a wrong guess here is visible
+-- and fixable rather than silently failing.
+-- NOTE: Millennium passes params alphabetically: a_bearer, assettype, direction, id
+function vote_asset(a_bearer, assettype, direction, id)
+    local endpoint = string.format("https://www.steamgriddb.com/api/v2/%s/vote/%s/%s", assettype, direction, tostring(id))
+    local auth_header = "Authorization: Bearer " .. a_bearer
+    local h = io.popen(string.format(
+        "env -u LD_LIBRARY_PATH curl -s -X POST --max-time 15 -H %q %q 2>/dev/null",
+        auth_header, endpoint
+    ))
+    if not h then logger:error("vote_asset: popen failed"); return "FAILED:popen" end
+    local body = h:read("*a"); h:close()
+    logger:info("vote_asset: " .. endpoint .. " -> " .. tostring(body))
+    if body and body:match('"success"%s*:%s*true') then return "OK" end
+    return "FAILED:" .. tostring(body)
+end
+
 -- Durable plugin configuration. Steam clears its CEF localStorage on
 -- client updates and "delete web browser data", silently wiping any
 -- settings stored there (including the API key). config.json in the

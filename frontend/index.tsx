@@ -38,6 +38,11 @@ const log_frontend = callable<[{ msg: string }], void>('log_frontend');
 const fetch_artwork = callable<[{ appid: number, imagetype: number, img_url: string }], string>('fetch_artwork');
 const get_artwork_chunk = callable<[{ appid: number, chunk: number, imagetype: number, img_url: string }], string>('get_artwork_chunk');
 const restore_icon = callable<[{ appid: number }], string>('restore_icon');
+// Endpoint URL inferred from SGDB's established REST conventions
+// ({assettype}/vote/{direction}/{id}) — this is the one call in the whole
+// plugin that hasn't been confirmed against a live response. Everything
+// else here was checked; this one needs a real test.
+const vote_asset = callable<[{ a_bearer: string, assettype: string, direction: string, id: number }], string>('vote_asset');
 const get_config = callable<[], string>('get_config');
 const set_config = callable<[{ config_json: string }], string>('set_config');
 
@@ -152,6 +157,15 @@ type AppCustomizationState = { grids: boolean; heroes: boolean; logos: boolean; 
 type CustomizationStates = Record<string, AppCustomizationState>;
 var customizationStates: CustomizationStates = {};
 
+// Tracks which individual SGDB asset IDs (a specific grid/hero/logo/icon,
+// not the game itself) have been upvoted through this plugin. SGDB's
+// list/search endpoints don't return a per-account "did I already vote on
+// this" flag, so this is the plugin's own record of votes it has actually
+// submitted — it won't know about prior votes cast on the website itself,
+// only ones cast from here.
+type LikedAssets = Record<number, boolean>;
+var likedAssets: LikedAssets = {};
+
 function SetCustomizationState(appID: number, imgType: number, newState: boolean) {
     if (!(appID.toString() in customizationStates)) {
         customizationStates[appID.toString()] = { grids: false, heroes: false, logos: false, wide_grids: false, icons: false };
@@ -263,6 +277,14 @@ async function getSearchData(appId: number, imgType: number) {
         searchData = orderSearchDataByAuthors(searchData);
     }
     searchCache[appId.toString()][imgTypeDict[imgType]] = searchData;
+    if (searchData.length > 0) {
+        // Diagnostic: the plugin currently reads .score directly, but that's
+        // only confirmed against SGDB's own grid examples — heroes/logos/icons
+        // haven't been checked against a live response. Logging the raw first
+        // item once per fresh (non-cached) search settles what the real field
+        // looks like instead of guessing at alternate names.
+        await log_frontend({ msg: `getSearchData first item (type=${imgTypeDict[imgType]}): ${JSON.stringify(searchData[0])}` });
+    }
     return searchData;
 }
 
@@ -400,6 +422,11 @@ function getEasyGridComponent(popup: any) {
         const imageWrapperStyle: React.CSSProperties = { width: (popup.m_popup.window.screen.width * props.imageWidthMult) + 'px', minWidth: "150px", height: "auto", position: 'relative', display: 'inline-block' };
         const imageStyle: React.CSSProperties = { width: '100%', height: 'auto', objectFit: 'cover', borderRadius: '8px', display: 'block' };
         const statusStyle: React.CSSProperties = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'darkgray', fontSize: '24px', fontWeight: 'bold' };
+        const infoRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', fontSize: '12px', color: '#ccc', gap: '6px' };
+        const authorInfoStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', minWidth: 0, cursor: 'pointer' };
+        const avatarStyle: React.CSSProperties = { width: '16px', height: '16px', borderRadius: '50%', flexShrink: 0 };
+        const authorNameStyle: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+        const heartRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', flexShrink: 0 };
 
         const [steamGridDBId, setSteamGridDBId] = useState<number>(-1);
         const [thumbnailList, setThumbnailList] = useState([]);
@@ -522,6 +549,30 @@ function getEasyGridComponent(popup: any) {
             window.open(`https://www.steamgriddb.com/game/${steamGridDBId}`, "_blank");
         };
 
+        // Upvotes a single asset. Silently a no-op if already liked through
+        // this plugin (SGDB doesn't let you vote twice, and this avoids a
+        // pointless request). imgSearchTypeName mirrors the same grids/heroes/
+        // logos/icons mapping already used for search (wide_grid -> grids).
+        const VoteAsset = async (assetId: number, e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (likedAssets[assetId]) return;
+            const imgSearchTypeName = props.imagetype === 3 ? "grids" : imgTypeDict[props.imagetype];
+            const result = await vote_asset({ a_bearer: pluginConfig.api_key, assettype: imgSearchTypeName, direction: "up", id: assetId });
+            if (result === "OK") {
+                likedAssets[assetId] = true;
+                localStorage.setItem("luthor112.steam-easygrid.liked", JSON.stringify(likedAssets));
+                setThumbnailList([...thumbnailList]);
+            } else {
+                await log_frontend({ msg: `vote_asset failed: ${result}` });
+            }
+        };
+
+        const OpenAuthorProfile = (steam64: string | undefined, e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (!steam64) return;
+            window.open(`https://www.steamgriddb.com/profile/${steam64}`, "_blank");
+        };
+
         useEffect(() => { GetCurrentSettings(); }, []);
 
         // Ko-fi support button. Uses the real widget's own init()+getHTML() — deliberately
@@ -560,17 +611,36 @@ function getEasyGridComponent(popup: any) {
                 <DialogButton style={{width: "115px", display: "inline-block"}} onClick={ClearSteamGridDBIdOverride}>Clear SGDB ID</DialogButton><br/>
                 <div style={containerStyle}>
                     {thumbnailList.map((thumbData, index) => {
+                        const liked = !!likedAssets[thumbData.id];
+                        // +1 shown locally on like — SGDB's response score isn't
+                        // refetched after voting, so this is an optimistic bump,
+                        // not a live count from the server.
+                        const displayScore = (thumbData.score || 0) + (liked ? 1 : 0);
+                        const infoRow = (
+                            <div style={infoRowStyle}>
+                                <div style={authorInfoStyle} onClick={(e: React.MouseEvent) => OpenAuthorProfile(thumbData.author?.steam64, e)} title="Open SGDB profile">
+                                    {thumbData.author?.avatar && <img src={thumbData.author.avatar} style={avatarStyle} alt=""/>}
+                                    <span style={authorNameStyle}>{thumbData.author?.name}</span>
+                                </div>
+                                <div style={heartRowStyle} onClick={(e: React.MouseEvent) => VoteAsset(thumbData.id, e)}>
+                                    <span>{liked ? '♥' : '♡'}</span>
+                                    <span>{displayScore}</span>
+                                </div>
+                            </div>
+                        );
                         if (thumbData["type"] === "static")
                             return (
                                 <div key={index} style={imageWrapperStyle}>
                                     <img data-imageindex={index} src={thumbData["thumb"]} alt={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
                                     <div style={statusStyle}></div>
+                                    {infoRow}
                                 </div>
                             );
                         return (
                             <div key={index} style={imageWrapperStyle}>
                                 <video data-imageindex={index} autoPlay loop muted playsInline src={thumbData["thumb"]} title={thumbData["type"]} style={imageStyle} onClick={SetNewImage}/>
                                 <div style={statusStyle}></div>
+                                {infoRow}
                             </div>
                         );
                     })}
@@ -811,6 +881,8 @@ export default definePlugin(async () => {
     gameIDOverrides = { ...gameIDOverrides, ...(rawOverrideValue ? JSON.parse(rawOverrideValue) : {}) };
     const rawCustomizationValue = localStorage.getItem("luthor112.steam-easygrid.customization");
     customizationStates = { ...customizationStates, ...(rawCustomizationValue ? JSON.parse(rawCustomizationValue) : {}) };
+    const rawLikedValue = localStorage.getItem("luthor112.steam-easygrid.liked");
+    likedAssets = { ...likedAssets, ...(rawLikedValue ? JSON.parse(rawLikedValue) : {}) };
     Millennium.AddWindowCreateHook!(OnPopupCreation);
     return {
         title: "Easy SteamGrid",
